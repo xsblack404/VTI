@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enterprise Bulk Video to Frame Converter</title>
-    <!-- External Icons -->
+    <title>Enterprise Bulk Video Processor</title>
+    <!-- FontAwesome Icons -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <!-- Custom CSS -->
+    <!-- Styles -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -15,40 +15,43 @@
         <!-- Header -->
         <header>
             <div class="brand">
-                <i class="fa-solid fa-layer-group"></i>
-                <h1>Frame<span class="highlight">Extract</span> Pro</h1>
+                <i class="fa-solid fa-film"></i>
+                <h1>Frame<span class="highlight">Master</span> Enterprise</h1>
             </div>
-            <div class="status-badge" id="systemStatus">Ready</div>
+            <div class="status-badge" id="systemStatus">System Ready</div>
         </header>
 
         <!-- Configuration Panel -->
         <section class="config-panel">
-            <!-- NEW: Mode Selection -->
+            <!-- Mode Selector -->
             <div class="control-group">
-                <label>Operation Mode</label>
+                <label><i class="fa-solid fa-gears"></i> Processing Mode</label>
                 <select id="modeSettings">
+                    <option value="single">Single Thumbnail (All in One Zip)</option>
                     <option value="interval">Interval Extraction (Zip per Video)</option>
-                    <option value="single">Single Thumbnail (One Master Zip)</option>
                 </select>
             </div>
 
+            <!-- Time Settings -->
             <div class="control-group">
-                <label id="intervalLabel">Interval / Snapshot Time (Sec)</label>
+                <label id="intervalLabel">Snapshot Timestamp (sec)</label>
                 <input type="number" id="intervalSettings" value="1" min="0.1" step="0.1">
-                <small id="intervalHelp">Extract 1 frame every X seconds</small>
+                <small id="intervalHelp">Capture frame at this second</small>
             </div>
             
+            <!-- Format Settings -->
             <div class="control-group">
-                <label>Output Format</label>
+                <label>Image Format</label>
                 <select id="formatSettings">
-                    <option value="image/jpeg">JPEG (Compressed)</option>
-                    <option value="image/png">PNG (High Quality)</option>
+                    <option value="image/jpeg">JPEG (Standard)</option>
+                    <option value="image/png">PNG (Lossless)</option>
                 </select>
             </div>
 
+            <!-- Quality Settings -->
             <div class="control-group">
-                <label>JPEG Quality (0.1 - 1.0)</label>
-                <input type="number" id="qualitySettings" value="0.8" min="0.1" max="1.0" step="0.1">
+                <label>Quality (0.1 - 1.0)</label>
+                <input type="number" id="qualitySettings" value="0.85" min="0.1" max="1.0" step="0.05">
             </div>
         </section>
 
@@ -56,27 +59,27 @@
         <div class="dropzone" id="dropzone">
             <div class="dropzone-content">
                 <i class="fa-solid fa-cloud-arrow-up"></i>
-                <h3>Drag & Drop Video Files Here</h3>
-                <p>or click to browse (MP4, WEBM, MOV, AVI)</p>
+                <h3>Drag Video Files Here</h3>
+                <p>Supports MP4, WEBM, MOV, AVI</p>
                 <input type="file" id="fileInput" multiple accept="video/*" hidden>
             </div>
         </div>
 
-        <!-- Queue List -->
+        <!-- Processing Queue -->
         <div class="queue-container" id="queueContainer" style="display: none;">
             <div class="queue-header">
-                <h2>Processing Queue (<span id="queueCount">0</span>)</h2>
-                <button id="clearQueueBtn" class="btn-text">Clear All</button>
+                <h2>Queue (<span id="queueCount">0</span>)</h2>
+                <button id="clearQueueBtn" class="btn-text">Clear List</button>
             </div>
             <ul class="file-list" id="fileList">
-                <!-- JS populates this -->
+                <!-- List Items Injected Here -->
             </ul>
         </div>
 
-        <!-- Global Progress -->
+        <!-- Progress Bar -->
         <div class="progress-section" id="progressSection" style="display: none;">
             <div class="progress-info">
-                <span id="currentTask">Processing...</span>
+                <span id="currentTask">Initializing...</span>
                 <span id="percentage">0%</span>
             </div>
             <div class="progress-bar-bg">
@@ -84,26 +87,26 @@
             </div>
         </div>
 
-        <!-- Action Buttons -->
+        <!-- Controls -->
         <div class="action-area">
             <button id="startBtn" class="btn btn-primary" disabled>
-                <i class="fa-solid fa-play"></i> Start Processing
+                <i class="fa-solid fa-bolt"></i> Start Process
             </button>
             <button id="stopBtn" class="btn btn-danger" disabled>
-                <i class="fa-solid fa-stop"></i> Stop
+                <i class="fa-solid fa-hand"></i> Stop
             </button>
         </div>
 
-        <!-- Logs -->
+        <!-- Console Output -->
         <div class="console-log" id="consoleLog">
-            <div class="log-entry">[System] Engine initialized. Waiting for input...</div>
+            <div class="log-entry">[System] Core logic loaded. Waiting for files...</div>
         </div>
     </div>
 
-    <!-- Libraries -->
+    <!-- Dependencies -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
-    <!-- App Logic -->
+    <!-- Main Logic -->
     <script src="script.js"></script>
 </body>
 </html>
