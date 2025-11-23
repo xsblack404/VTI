@@ -30,7 +30,7 @@ body {
 .app-container {
     background: var(--surface);
     width: 100%;
-    max-width: 900px;
+    max-width: 950px; /* Increased slightly for 4 columns */
     border-radius: var(--radius);
     box-shadow: var(--shadow);
     display: flex;
@@ -80,7 +80,7 @@ header {
     padding: 1.5rem;
     background: #f1f5f9;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 1rem;
     border-bottom: 1px solid var(--border);
 }
@@ -94,6 +94,7 @@ header {
 .control-group label {
     font-size: 0.85rem;
     font-weight: 600;
+    white-space: nowrap;
 }
 
 .control-group input, .control-group select {
@@ -101,11 +102,13 @@ header {
     border: 1px solid var(--border);
     border-radius: 4px;
     font-size: 0.9rem;
+    background: white;
 }
 
 .control-group small {
     font-size: 0.75rem;
     color: var(--text-light);
+    line-height: 1.2;
 }
 
 /* Dropzone */
