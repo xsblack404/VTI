@@ -1,277 +1,321 @@
-:root {
-    --primary: #2563eb;
-    --primary-hover: #1d4ed8;
-    --danger: #dc2626;
-    --bg: #f8fafc;
-    --surface: #ffffff;
-    --border: #e2e8f0;
-    --text-main: #1e293b;
-    --text-light: #64748b;
-    --radius: 8px;
-    --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+/**
+ * Enterprise Bulk Video Converter Logic
+ * Supports: Interval Extraction (Multi-Zip) and Single Frame Overview (Master Zip)
+ */
+
+class VideoConverter {
+    constructor() {
+        this.files = [];
+        this.isProcessing = false;
+        this.stopRequested = false;
+        
+        // DOM Elements
+        this.dropzone = document.getElementById('dropzone');
+        this.fileInput = document.getElementById('fileInput');
+        this.fileList = document.getElementById('fileList');
+        this.queueContainer = document.getElementById('queueContainer');
+        this.queueCount = document.getElementById('queueCount');
+        this.startBtn = document.getElementById('startBtn');
+        this.stopBtn = document.getElementById('stopBtn');
+        this.progressBar = document.getElementById('progressBar');
+        this.percentage = document.getElementById('percentage');
+        this.currentTask = document.getElementById('currentTask');
+        this.progressSection = document.getElementById('progressSection');
+        this.consoleLog = document.getElementById('consoleLog');
+        this.clearQueueBtn = document.getElementById('clearQueueBtn');
+
+        // Settings
+        this.modeInput = document.getElementById('modeSettings');
+        this.intervalInput = document.getElementById('intervalSettings');
+        this.intervalLabel = document.getElementById('intervalLabel');
+        this.intervalHelp = document.getElementById('intervalHelp');
+        this.formatInput = document.getElementById('formatSettings');
+        this.qualityInput = document.getElementById('qualitySettings');
+
+        this.initListeners();
+    }
+
+    initListeners() {
+        // Drag & Drop
+        this.dropzone.addEventListener('dragover', (e) => { e.preventDefault(); this.dropzone.classList.add('dragover'); });
+        this.dropzone.addEventListener('dragleave', () => { this.dropzone.classList.remove('dragover'); });
+        this.dropzone.addEventListener('drop', (e) => { e.preventDefault(); this.dropzone.classList.remove('dragover'); this.handleFiles(e.dataTransfer.files); });
+
+        // Click to Browse
+        this.dropzone.addEventListener('click', () => this.fileInput.click());
+        this.fileInput.addEventListener('change', (e) => this.handleFiles(e.target.files));
+
+        // Buttons
+        this.startBtn.addEventListener('click', () => this.startProcessing());
+        this.stopBtn.addEventListener('click', () => {
+            this.stopRequested = true;
+            this.log('Stop requested by user...');
+            this.stopBtn.disabled = true;
+        });
+        this.clearQueueBtn.addEventListener('click', () => this.clearQueue());
+
+        // Settings UI Logic
+        this.modeInput.addEventListener('change', () => {
+            if (this.modeInput.value === 'single') {
+                this.intervalLabel.textContent = "Snapshot Time (Seconds)";
+                this.intervalHelp.textContent = "Capture frame at this timestamp";
+            } else {
+                this.intervalLabel.textContent = "Extraction Interval (Seconds)";
+                this.intervalHelp.textContent = "Extract 1 frame every X seconds";
+            }
+        });
+    }
+
+    handleFiles(fileList) {
+        if (this.isProcessing) return;
+
+        const newFiles = Array.from(fileList).filter(file => file.type.startsWith('video/'));
+        
+        if (newFiles.length === 0) {
+            this.log('Error: No valid video files detected.');
+            return;
+        }
+
+        this.files = [...this.files, ...newFiles];
+        this.updateQueueUI();
+        this.log(`Added ${newFiles.length} videos to queue.`);
+    }
+
+    updateQueueUI() {
+        this.fileList.innerHTML = '';
+        this.queueCount.textContent = this.files.length;
+        
+        if (this.files.length > 0) {
+            this.queueContainer.style.display = 'block';
+            this.startBtn.disabled = false;
+        } else {
+            this.queueContainer.style.display = 'none';
+            this.startBtn.disabled = true;
+        }
+
+        this.files.forEach((file, index) => {
+            const li = document.createElement('li');
+            li.className = 'file-item';
+            li.id = `file-${index}`;
+            li.innerHTML = `
+                <div class="file-info">
+                    <span class="file-name">${file.name}</span>
+                    <span class="file-meta">${(file.size / 1024 / 1024).toFixed(2)} MB</span>
+                </div>
+                <span class="file-status status-pending" id="status-${index}">Pending</span>
+            `;
+            this.fileList.appendChild(li);
+        });
+    }
+
+    clearQueue() {
+        if (this.isProcessing) return;
+        this.files = [];
+        this.updateQueueUI();
+        this.log('Queue cleared.');
+    }
+
+    log(msg) {
+        const div = document.createElement('div');
+        div.className = 'log-entry';
+        div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        this.consoleLog.appendChild(div);
+        this.consoleLog.scrollTop = this.consoleLog.scrollHeight;
+    }
+
+    async startProcessing() {
+        this.isProcessing = true;
+        this.stopRequested = false;
+        this.startBtn.disabled = true;
+        this.stopBtn.disabled = false;
+        this.progressSection.style.display = 'block';
+        this.dropzone.style.pointerEvents = 'none';
+        this.clearQueueBtn.style.display = 'none';
+
+        const mode = this.modeInput.value;
+        const interval = parseFloat(this.intervalInput.value) || 1;
+        const format = this.formatInput.value;
+        const quality = parseFloat(this.qualityInput.value);
+
+        // Initialize Master Zip if in Single Mode
+        let globalZip = null;
+        if (mode === 'single') {
+            this.log('Mode: Single Frame Extraction. Creating Master Zip...');
+            globalZip = new JSZip();
+        } else {
+            this.log('Mode: Interval Extraction. Creating Zip per Video...');
+        }
+
+        for (let i = 0; i < this.files.length; i++) {
+            if (this.stopRequested) break;
+
+            const file = this.files[i];
+            const statusEl = document.getElementById(`status-${i}`);
+            statusEl.textContent = 'Processing...';
+            statusEl.className = 'file-status status-processing';
+            
+            this.currentTask.textContent = `Processing ${i + 1}/${this.files.length}: ${file.name}`;
+
+            // Update Global Progress bar for Single Mode
+            if (mode === 'single') {
+                const percent = ((i) / this.files.length) * 100;
+                this.progressBar.style.width = `${percent}%`;
+                this.percentage.textContent = `${Math.round(percent)}%`;
+            }
+
+            try {
+                if (mode === 'single') {
+                    // Single Frame Mode
+                    await this.processSingleFrame(file, interval, format, quality, globalZip);
+                } else {
+                    // Interval Mode
+                    await this.processInterval(file, interval, format, quality);
+                }
+
+                statusEl.textContent = 'Done';
+                statusEl.className = 'file-status status-done';
+            } catch (err) {
+                console.error(err);
+                this.log(`Error processing ${file.name}: ${err.message}`);
+                statusEl.textContent = 'Error';
+                statusEl.className = 'file-status status-error';
+            }
+        }
+
+        // Finalize
+        if (!this.stopRequested && mode === 'single' && this.files.length > 0) {
+            this.currentTask.textContent = "Compressing Master Zip...";
+            this.log('Generating Master Zip archive...');
+            const content = await globalZip.generateAsync({ type: 'blob' });
+            saveAs(content, `All_Thumbnails_${new Date().getTime()}.zip`);
+        }
+
+        this.progressBar.style.width = '100%';
+        this.percentage.textContent = '100%';
+        this.resetUI();
+    }
+
+    // MODE 1: ONE ZIP PER VIDEO (Multiple frames)
+    async processInterval(file, interval, format, quality) {
+        return new Promise((resolve, reject) => {
+            const video = document.createElement('video');
+            video.src = URL.createObjectURL(file);
+            video.muted = true;
+            video.playsInline = true;
+            
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const zip = new JSZip();
+            const folder = zip.folder(file.name.replace(/\.[^/.]+$/, "")); // Folder inside zip
+
+            let currentTime = 0;
+            
+            video.onloadedmetadata = async () => {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                const duration = video.duration;
+                
+                this.log(`Reading ${file.name} (${duration.toFixed(1)}s)`);
+
+                const processFrame = async () => {
+                    if (this.stopRequested) {
+                        URL.revokeObjectURL(video.src);
+                        resolve();
+                        return;
+                    }
+
+                    if (currentTime > duration) {
+                        this.log(`Zipping ${file.name}...`);
+                        const content = await zip.generateAsync({ type: 'blob' });
+                        saveAs(content, `${file.name}_frames.zip`);
+                        URL.revokeObjectURL(video.src);
+                        resolve();
+                        return;
+                    }
+
+                    const percent = Math.min(100, (currentTime / duration) * 100);
+                    this.progressBar.style.width = `${percent}%`;
+                    this.percentage.textContent = `${Math.round(percent)}%`;
+
+                    video.currentTime = currentTime;
+                };
+
+                video.onseeked = async () => {
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    const blob = await new Promise(r => canvas.toBlob(r, format, quality));
+                    
+                    const ext = format === 'image/png' ? 'png' : 'jpg';
+                    const timeStr = currentTime.toFixed(2).replace('.', '_');
+                    folder.file(`frame_${timeStr}.${ext}`, blob);
+
+                    currentTime += interval;
+                    processFrame(); 
+                };
+
+                video.onerror = () => reject(new Error("Video load error"));
+                processFrame();
+            };
+        });
+    }
+
+    // MODE 2: ONE ZIP FOR ALL VIDEOS (One frame each)
+    async processSingleFrame(file, snapshotTime, format, quality, globalZip) {
+        return new Promise((resolve, reject) => {
+            const video = document.createElement('video');
+            video.src = URL.createObjectURL(file);
+            video.muted = true;
+            video.playsInline = true;
+
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            video.onloadedmetadata = async () => {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+
+                // Ensure we don't seek past the video duration
+                let seekTime = snapshotTime;
+                if (seekTime > video.duration) seekTime = video.duration / 2; // Fallback to middle if setting is too high
+
+                video.currentTime = seekTime;
+            };
+
+            video.onseeked = async () => {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const blob = await new Promise(r => canvas.toBlob(r, format, quality));
+
+                const ext = format === 'image/png' ? 'png' : 'jpg';
+                const safeName = file.name.replace(/\.[^/.]+$/, ""); // Remove extension
+                
+                // Add to master zip
+                globalZip.file(`${safeName}_thumb.${ext}`, blob);
+                
+                URL.revokeObjectURL(video.src);
+                resolve();
+            };
+
+            video.onerror = (e) => {
+                URL.revokeObjectURL(video.src);
+                reject(new Error("Video load error"));
+            };
+        });
+    }
+
+    resetUI() {
+        this.isProcessing = false;
+        this.stopRequested = false;
+        this.startBtn.disabled = false;
+        this.stopBtn.disabled = true;
+        this.dropzone.style.pointerEvents = 'auto';
+        this.clearQueueBtn.style.display = 'block';
+        this.currentTask.textContent = "Ready";
+        this.log('Batch processing finished.');
+        document.getElementById('systemStatus').textContent = "Completed";
+        document.getElementById('systemStatus').style.color = "#059669";
+    }
 }
 
-* {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-    font-family: 'Segoe UI', system-ui, sans-serif;
-}
-
-body {
-    background-color: var(--bg);
-    color: var(--text-main);
-    height: 100vh;
-    display: flex;
-    justify-content: center;
-    padding: 2rem;
-}
-
-.app-container {
-    background: var(--surface);
-    width: 100%;
-    max-width: 950px; /* Increased slightly for 4 columns */
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    height: 90vh;
-}
-
-/* Header */
-header {
-    padding: 1.5rem;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.brand {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: var(--primary);
-}
-
-.brand h1 {
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: var(--text-main);
-}
-
-.highlight {
-    color: var(--primary);
-}
-
-.status-badge {
-    background: #dbeafe;
-    color: var(--primary);
-    padding: 0.25rem 0.75rem;
-    border-radius: 20px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-}
-
-/* Config Panel */
-.config-panel {
-    padding: 1.5rem;
-    background: #f1f5f9;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 1rem;
-    border-bottom: 1px solid var(--border);
-}
-
-.control-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
-
-.control-group label {
-    font-size: 0.85rem;
-    font-weight: 600;
-    white-space: nowrap;
-}
-
-.control-group input, .control-group select {
-    padding: 0.5rem;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    font-size: 0.9rem;
-    background: white;
-}
-
-.control-group small {
-    font-size: 0.75rem;
-    color: var(--text-light);
-    line-height: 1.2;
-}
-
-/* Dropzone */
-.dropzone {
-    flex: 0 0 auto;
-    margin: 1.5rem;
-    border: 2px dashed var(--border);
-    border-radius: var(--radius);
-    padding: 2rem;
-    text-align: center;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.dropzone:hover, .dropzone.dragover {
-    border-color: var(--primary);
-    background: #eff6ff;
-}
-
-.dropzone-content i {
-    font-size: 2rem;
-    color: var(--text-light);
-    margin-bottom: 1rem;
-}
-
-/* Queue */
-.queue-container {
-    flex: 1;
-    overflow-y: auto;
-    padding: 0 1.5rem;
-    border-top: 1px solid var(--border);
-}
-
-.queue-header {
-    position: sticky;
-    top: 0;
-    background: var(--surface);
-    padding: 1rem 0;
-    display: flex;
-    justify-content: space-between;
-    border-bottom: 1px solid var(--border);
-    z-index: 10;
-}
-
-.queue-header h2 {
-    font-size: 1rem;
-}
-
-.file-list {
-    list-style: none;
-}
-
-.file-item {
-    padding: 0.75rem 0;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 0.9rem;
-}
-
-.file-info {
-    display: flex;
-    flex-direction: column;
-}
-
-.file-name {
-    font-weight: 500;
-}
-
-.file-meta {
-    font-size: 0.75rem;
-    color: var(--text-light);
-}
-
-.file-status {
-    font-size: 0.75rem;
-    font-weight: 600;
-}
-
-.status-pending { color: var(--text-light); }
-.status-processing { color: var(--primary); }
-.status-done { color: #059669; }
-.status-error { color: var(--danger); }
-
-/* Progress Section */
-.progress-section {
-    padding: 1rem 1.5rem;
-    background: #f8fafc;
-    border-top: 1px solid var(--border);
-}
-
-.progress-info {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.85rem;
-    margin-bottom: 0.5rem;
-}
-
-.progress-bar-bg {
-    height: 8px;
-    background: var(--border);
-    border-radius: 4px;
-    overflow: hidden;
-}
-
-.progress-bar-fill {
-    height: 100%;
-    background: var(--primary);
-    width: 0%;
-    transition: width 0.3s ease;
-}
-
-/* Actions */
-.action-area {
-    padding: 1.5rem;
-    display: flex;
-    gap: 1rem;
-    justify-content: flex-end;
-    border-top: 1px solid var(--border);
-}
-
-.btn {
-    padding: 0.75rem 1.5rem;
-    border: none;
-    border-radius: 4px;
-    font-weight: 600;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    transition: opacity 0.2s;
-}
-
-.btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.btn-primary { background: var(--primary); color: white; }
-.btn-primary:not(:disabled):hover { background: var(--primary-hover); }
-
-.btn-danger { background: var(--danger); color: white; }
-
-.btn-text {
-    background: none;
-    border: none;
-    color: var(--text-light);
-    cursor: pointer;
-    text-decoration: underline;
-}
-
-/* Logs */
-.console-log {
-    height: 100px;
-    background: #0f172a;
-    color: #38bdf8;
-    padding: 0.5rem;
-    overflow-y: auto;
-    font-family: 'Courier New', monospace;
-    font-size: 0.75rem;
-}
-
-.log-entry {
-    margin-bottom: 2px;
-}
+// Initialize App
+document.addEventListener('DOMContentLoaded', () => {
+    const app = new VideoConverter();
+});
