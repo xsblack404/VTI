@@ -1,6 +1,9 @@
 /**
- * Enterprise Bulk Video Converter Logic
- * Supports: Interval Extraction (Multi-Zip) and Single Frame Overview (Master Zip)
+ * Enterprise Bulk Video Processor Logic
+ * Key Features:
+ * 1. Master Zip Mode: Accumulates one frame per video into a single downloadable file.
+ * 2. Interval Mode: Creates individual zips per video with multiple frames.
+ * 3. Asynchronous Queue: Prevents browser freezing.
  */
 
 class VideoConverter {
@@ -9,109 +12,96 @@ class VideoConverter {
         this.isProcessing = false;
         this.stopRequested = false;
         
-        // DOM Elements
-        this.dropzone = document.getElementById('dropzone');
-        this.fileInput = document.getElementById('fileInput');
-        this.fileList = document.getElementById('fileList');
-        this.queueContainer = document.getElementById('queueContainer');
-        this.queueCount = document.getElementById('queueCount');
-        this.startBtn = document.getElementById('startBtn');
-        this.stopBtn = document.getElementById('stopBtn');
-        this.progressBar = document.getElementById('progressBar');
-        this.percentage = document.getElementById('percentage');
-        this.currentTask = document.getElementById('currentTask');
-        this.progressSection = document.getElementById('progressSection');
-        this.consoleLog = document.getElementById('consoleLog');
-        this.clearQueueBtn = document.getElementById('clearQueueBtn');
+        // UI References
+        this.ui = {
+            dropzone: document.getElementById('dropzone'),
+            fileInput: document.getElementById('fileInput'),
+            fileList: document.getElementById('fileList'),
+            queueContainer: document.getElementById('queueContainer'),
+            queueCount: document.getElementById('queueCount'),
+            startBtn: document.getElementById('startBtn'),
+            stopBtn: document.getElementById('stopBtn'),
+            progressBar: document.getElementById('progressBar'),
+            percentage: document.getElementById('percentage'),
+            currentTask: document.getElementById('currentTask'),
+            progressSection: document.getElementById('progressSection'),
+            consoleLog: document.getElementById('consoleLog'),
+            clearQueueBtn: document.getElementById('clearQueueBtn'),
+            statusBadge: document.getElementById('systemStatus'),
+            
+            // Settings
+            mode: document.getElementById('modeSettings'),
+            interval: document.getElementById('intervalSettings'),
+            intervalLabel: document.getElementById('intervalLabel'),
+            intervalHelp: document.getElementById('intervalHelp'),
+            format: document.getElementById('formatSettings'),
+            quality: document.getElementById('qualitySettings')
+        };
 
-        // Settings
-        this.modeInput = document.getElementById('modeSettings');
-        this.intervalInput = document.getElementById('intervalSettings');
-        this.intervalLabel = document.getElementById('intervalLabel');
-        this.intervalHelp = document.getElementById('intervalHelp');
-        this.formatInput = document.getElementById('formatSettings');
-        this.qualityInput = document.getElementById('qualitySettings');
-
-        this.initListeners();
+        this.init();
     }
 
-    initListeners() {
-        // Drag & Drop
-        this.dropzone.addEventListener('dragover', (e) => { e.preventDefault(); this.dropzone.classList.add('dragover'); });
-        this.dropzone.addEventListener('dragleave', () => { this.dropzone.classList.remove('dragover'); });
-        this.dropzone.addEventListener('drop', (e) => { e.preventDefault(); this.dropzone.classList.remove('dragover'); this.handleFiles(e.dataTransfer.files); });
+    init() {
+        // Drag and Drop
+        this.ui.dropzone.addEventListener('dragover', (e) => { e.preventDefault(); this.ui.dropzone.classList.add('dragover'); });
+        this.ui.dropzone.addEventListener('dragleave', () => this.ui.dropzone.classList.remove('dragover'));
+        this.ui.dropzone.addEventListener('drop', (e) => { e.preventDefault(); this.ui.dropzone.classList.remove('dragover'); this.handleFiles(e.dataTransfer.files); });
+        
+        // File Input
+        this.ui.dropzone.addEventListener('click', () => this.ui.fileInput.click());
+        this.ui.fileInput.addEventListener('change', (e) => this.handleFiles(e.target.files));
 
-        // Click to Browse
-        this.dropzone.addEventListener('click', () => this.fileInput.click());
-        this.fileInput.addEventListener('change', (e) => this.handleFiles(e.target.files));
+        // Controls
+        this.ui.startBtn.addEventListener('click', () => this.startProcessing());
+        this.ui.stopBtn.addEventListener('click', () => { this.stopRequested = true; this.log('Stop requested...'); });
+        this.ui.clearQueueBtn.addEventListener('click', () => this.clearQueue());
 
-        // Buttons
-        this.startBtn.addEventListener('click', () => this.startProcessing());
-        this.stopBtn.addEventListener('click', () => {
-            this.stopRequested = true;
-            this.log('Stop requested by user...');
-            this.stopBtn.disabled = true;
-        });
-        this.clearQueueBtn.addEventListener('click', () => this.clearQueue());
-
-        // Settings UI Logic
-        this.modeInput.addEventListener('change', () => {
-            if (this.modeInput.value === 'single') {
-                this.intervalLabel.textContent = "Snapshot Time (Seconds)";
-                this.intervalHelp.textContent = "Capture frame at this timestamp";
+        // Settings UI Toggles
+        this.ui.mode.addEventListener('change', () => {
+            if (this.ui.mode.value === 'single') {
+                this.ui.intervalLabel.textContent = "Snapshot Timestamp (Seconds)";
+                this.ui.intervalHelp.textContent = "Example: Type '5' to take a thumbnail at 00:05";
             } else {
-                this.intervalLabel.textContent = "Extraction Interval (Seconds)";
-                this.intervalHelp.textContent = "Extract 1 frame every X seconds";
+                this.ui.intervalLabel.textContent = "Extraction Interval (Seconds)";
+                this.ui.intervalHelp.textContent = "Extracts a frame every X seconds";
             }
         });
     }
 
     handleFiles(fileList) {
         if (this.isProcessing) return;
+        const validFiles = Array.from(fileList).filter(f => f.type.startsWith('video/'));
+        if (validFiles.length === 0) return this.log('Error: No video files found.');
 
-        const newFiles = Array.from(fileList).filter(file => file.type.startsWith('video/'));
-        
-        if (newFiles.length === 0) {
-            this.log('Error: No valid video files detected.');
-            return;
-        }
-
-        this.files = [...this.files, ...newFiles];
-        this.updateQueueUI();
-        this.log(`Added ${newFiles.length} videos to queue.`);
+        this.files = [...this.files, ...validFiles];
+        this.renderQueue();
+        this.log(`Added ${validFiles.length} videos to queue.`);
     }
 
-    updateQueueUI() {
-        this.fileList.innerHTML = '';
-        this.queueCount.textContent = this.files.length;
-        
-        if (this.files.length > 0) {
-            this.queueContainer.style.display = 'block';
-            this.startBtn.disabled = false;
-        } else {
-            this.queueContainer.style.display = 'none';
-            this.startBtn.disabled = true;
-        }
+    renderQueue() {
+        this.ui.fileList.innerHTML = '';
+        this.ui.queueCount.textContent = this.files.length;
+        this.ui.queueContainer.style.display = this.files.length ? 'block' : 'none';
+        this.ui.startBtn.disabled = this.files.length === 0;
 
-        this.files.forEach((file, index) => {
+        this.files.forEach((file, i) => {
             const li = document.createElement('li');
             li.className = 'file-item';
-            li.id = `file-${index}`;
             li.innerHTML = `
                 <div class="file-info">
                     <span class="file-name">${file.name}</span>
-                    <span class="file-meta">${(file.size / 1024 / 1024).toFixed(2)} MB</span>
+                    <span class="file-meta">${(file.size / 1024 / 1024).toFixed(1)} MB</span>
                 </div>
-                <span class="file-status status-pending" id="status-${index}">Pending</span>
+                <span class="file-status status-pending" id="status-${i}">Pending</span>
             `;
-            this.fileList.appendChild(li);
+            this.ui.fileList.appendChild(li);
         });
     }
 
     clearQueue() {
         if (this.isProcessing) return;
         this.files = [];
-        this.updateQueueUI();
+        this.renderQueue();
         this.log('Queue cleared.');
     }
 
@@ -119,84 +109,104 @@ class VideoConverter {
         const div = document.createElement('div');
         div.className = 'log-entry';
         div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-        this.consoleLog.appendChild(div);
-        this.consoleLog.scrollTop = this.consoleLog.scrollHeight;
+        this.ui.consoleLog.appendChild(div);
+        this.ui.consoleLog.scrollTop = this.ui.consoleLog.scrollHeight;
+    }
+
+    toggleUI(processing) {
+        this.isProcessing = processing;
+        this.ui.startBtn.disabled = processing;
+        this.ui.stopBtn.disabled = !processing;
+        this.ui.dropzone.style.pointerEvents = processing ? 'none' : 'auto';
+        this.ui.clearQueueBtn.style.display = processing ? 'none' : 'block';
+        this.ui.progressSection.style.display = processing ? 'block' : 'none';
+        this.ui.statusBadge.textContent = processing ? "Processing..." : "Idle";
+        this.ui.statusBadge.style.color = processing ? "#4f46e5" : "#64748b";
     }
 
     async startProcessing() {
-        this.isProcessing = true;
         this.stopRequested = false;
-        this.startBtn.disabled = true;
-        this.stopBtn.disabled = false;
-        this.progressSection.style.display = 'block';
-        this.dropzone.style.pointerEvents = 'none';
-        this.clearQueueBtn.style.display = 'none';
+        this.toggleUI(true);
+        
+        const mode = this.ui.mode.value;
+        const settings = {
+            interval: parseFloat(this.ui.interval.value) || 1,
+            format: this.ui.format.value,
+            quality: parseFloat(this.ui.quality.value)
+        };
 
-        const mode = this.modeInput.value;
-        const interval = parseFloat(this.intervalInput.value) || 1;
-        const format = this.formatInput.value;
-        const quality = parseFloat(this.qualityInput.value);
-
-        // Initialize Master Zip if in Single Mode
-        let globalZip = null;
+        // MASTER ZIP LOGIC: Create ONE zip instance for the entire batch
+        let masterZip = null;
         if (mode === 'single') {
-            this.log('Mode: Single Frame Extraction. Creating Master Zip...');
-            globalZip = new JSZip();
+            this.log('Mode: Single Frame. Initializing Master Zip archive...');
+            masterZip = new JSZip();
         } else {
-            this.log('Mode: Interval Extraction. Creating Zip per Video...');
+            this.log('Mode: Interval. Each video will produce its own Zip.');
         }
 
+        // Main Loop
         for (let i = 0; i < this.files.length; i++) {
             if (this.stopRequested) break;
 
             const file = this.files[i];
             const statusEl = document.getElementById(`status-${i}`);
-            statusEl.textContent = 'Processing...';
-            statusEl.className = 'file-status status-processing';
             
-            this.currentTask.textContent = `Processing ${i + 1}/${this.files.length}: ${file.name}`;
+            statusEl.textContent = 'Processing...';
+            statusEl.className = 'file-status status-pending'; // Blue color via css if needed
+            this.ui.currentTask.textContent = `Processing [${i+1}/${this.files.length}]: ${file.name}`;
 
-            // Update Global Progress bar for Single Mode
+            // Update Global Bar for Single Mode
             if (mode === 'single') {
-                const percent = ((i) / this.files.length) * 100;
-                this.progressBar.style.width = `${percent}%`;
-                this.percentage.textContent = `${Math.round(percent)}%`;
+                const pct = Math.round((i / this.files.length) * 100);
+                this.ui.progressBar.style.width = `${pct}%`;
+                this.ui.percentage.textContent = `${pct}%`;
             }
 
             try {
                 if (mode === 'single') {
-                    // Single Frame Mode
-                    await this.processSingleFrame(file, interval, format, quality, globalZip);
+                    // Pass the masterZip to the function to append the file
+                    await this.processSingleFrame(file, settings, masterZip, i);
                 } else {
-                    // Interval Mode
-                    await this.processInterval(file, interval, format, quality);
+                    await this.processInterval(file, settings);
                 }
-
+                
                 statusEl.textContent = 'Done';
                 statusEl.className = 'file-status status-done';
             } catch (err) {
                 console.error(err);
-                this.log(`Error processing ${file.name}: ${err.message}`);
+                this.log(`Error on ${file.name}: ${err.message}`);
                 statusEl.textContent = 'Error';
                 statusEl.className = 'file-status status-error';
             }
         }
 
-        // Finalize
-        if (!this.stopRequested && mode === 'single' && this.files.length > 0) {
-            this.currentTask.textContent = "Compressing Master Zip...";
-            this.log('Generating Master Zip archive...');
-            const content = await globalZip.generateAsync({ type: 'blob' });
-            saveAs(content, `All_Thumbnails_${new Date().getTime()}.zip`);
+        // FINALIZE MASTER ZIP
+        if (mode === 'single' && !this.stopRequested && this.files.length > 0) {
+            this.ui.currentTask.textContent = "Compressing Master Zip... (This may take a moment)";
+            this.ui.progressBar.style.width = '100%';
+            this.ui.percentage.textContent = 'Compressing...';
+            
+            try {
+                const content = await masterZip.generateAsync({ type: 'blob' });
+                const timestamp = new Date().toISOString().slice(0,19).replace(/:/g,"-");
+                saveAs(content, `Batch_Thumbnails_${timestamp}.zip`);
+                this.log('Master Zip downloaded successfully.');
+            } catch (e) {
+                this.log('Error generating zip: ' + e.message);
+            }
         }
 
-        this.progressBar.style.width = '100%';
-        this.percentage.textContent = '100%';
-        this.resetUI();
+        this.log('All operations completed.');
+        this.toggleUI(false);
+        this.ui.currentTask.textContent = "Ready";
+        this.ui.progressBar.style.width = '0%';
+        this.ui.percentage.textContent = '0%';
     }
 
-    // MODE 1: ONE ZIP PER VIDEO (Multiple frames)
-    async processInterval(file, interval, format, quality) {
+    /**
+     * SINGLE MODE: Extracts 1 frame and adds to masterZip
+     */
+    processSingleFrame(file, settings, zipInstance, index) {
         return new Promise((resolve, reject) => {
             const video = document.createElement('video');
             video.src = URL.createObjectURL(file);
@@ -205,18 +215,68 @@ class VideoConverter {
             
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-            const zip = new JSZip();
-            const folder = zip.folder(file.name.replace(/\.[^/.]+$/, "")); // Folder inside zip
 
-            let currentTime = 0;
-            
-            video.onloadedmetadata = async () => {
+            video.onloadedmetadata = () => {
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
-                const duration = video.duration;
                 
-                this.log(`Reading ${file.name} (${duration.toFixed(1)}s)`);
+                // Logic: If requested time is longer than video, take the middle frame
+                let seekTime = settings.interval;
+                if (seekTime > video.duration) seekTime = video.duration / 2;
 
+                video.currentTime = seekTime;
+            };
+
+            video.onseeked = async () => {
+                try {
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    const blob = await new Promise(r => canvas.toBlob(r, settings.format, settings.quality));
+                    
+                    // Filename handling (Handle duplicates by appending index)
+                    const ext = settings.format === 'image/png' ? 'png' : 'jpg';
+                    const cleanName = file.name.replace(/\.[^/.]+$/, "");
+                    // Adding index ensures uniqueness in the zip if user uploads files with same name
+                    const finalName = `${cleanName}_${index}.${ext}`;
+
+                    zipInstance.file(finalName, blob);
+                    
+                    URL.revokeObjectURL(video.src);
+                    resolve();
+                } catch (e) {
+                    reject(e);
+                }
+            };
+
+            video.onerror = () => {
+                URL.revokeObjectURL(video.src);
+                reject(new Error("Could not load video data"));
+            };
+        });
+    }
+
+    /**
+     * INTERVAL MODE: Extracts many frames, creates 1 Zip per Video immediately
+     */
+    processInterval(file, settings) {
+        return new Promise((resolve, reject) => {
+            const video = document.createElement('video');
+            video.src = URL.createObjectURL(file);
+            video.muted = true;
+            video.playsInline = true;
+            
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Local Zip for this specific video
+            const localZip = new JSZip();
+            const folder = localZip.folder(file.name.replace(/\.[^/.]+$/, ""));
+            
+            let currentTime = 0;
+
+            video.onloadedmetadata = () => {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                
                 const processFrame = async () => {
                     if (this.stopRequested) {
                         URL.revokeObjectURL(video.src);
@@ -224,98 +284,43 @@ class VideoConverter {
                         return;
                     }
 
-                    if (currentTime > duration) {
-                        this.log(`Zipping ${file.name}...`);
-                        const content = await zip.generateAsync({ type: 'blob' });
+                    if (currentTime > video.duration) {
+                        // Done with this video, generate its specific zip
+                        const content = await localZip.generateAsync({ type: 'blob' });
                         saveAs(content, `${file.name}_frames.zip`);
                         URL.revokeObjectURL(video.src);
                         resolve();
                         return;
                     }
 
-                    const percent = Math.min(100, (currentTime / duration) * 100);
-                    this.progressBar.style.width = `${percent}%`;
-                    this.percentage.textContent = `${Math.round(percent)}%`;
+                    // UI Update for specific file progress
+                    const pct = (currentTime / video.duration) * 100;
+                    this.ui.progressBar.style.width = `${pct}%`;
+                    this.ui.percentage.textContent = `${Math.round(pct)}%`;
 
                     video.currentTime = currentTime;
                 };
 
                 video.onseeked = async () => {
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                    const blob = await new Promise(r => canvas.toBlob(r, format, quality));
+                    const blob = await new Promise(r => canvas.toBlob(r, settings.format, settings.quality));
                     
-                    const ext = format === 'image/png' ? 'png' : 'jpg';
+                    const ext = settings.format === 'image/png' ? 'png' : 'jpg';
                     const timeStr = currentTime.toFixed(2).replace('.', '_');
                     folder.file(`frame_${timeStr}.${ext}`, blob);
 
-                    currentTime += interval;
-                    processFrame(); 
+                    currentTime += settings.interval;
+                    processFrame();
                 };
 
-                video.onerror = () => reject(new Error("Video load error"));
+                video.onerror = () => reject(new Error("Video playback error"));
+                
+                // Start loop
                 processFrame();
             };
         });
     }
-
-    // MODE 2: ONE ZIP FOR ALL VIDEOS (One frame each)
-    async processSingleFrame(file, snapshotTime, format, quality, globalZip) {
-        return new Promise((resolve, reject) => {
-            const video = document.createElement('video');
-            video.src = URL.createObjectURL(file);
-            video.muted = true;
-            video.playsInline = true;
-
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-
-            video.onloadedmetadata = async () => {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-
-                // Ensure we don't seek past the video duration
-                let seekTime = snapshotTime;
-                if (seekTime > video.duration) seekTime = video.duration / 2; // Fallback to middle if setting is too high
-
-                video.currentTime = seekTime;
-            };
-
-            video.onseeked = async () => {
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                const blob = await new Promise(r => canvas.toBlob(r, format, quality));
-
-                const ext = format === 'image/png' ? 'png' : 'jpg';
-                const safeName = file.name.replace(/\.[^/.]+$/, ""); // Remove extension
-                
-                // Add to master zip
-                globalZip.file(`${safeName}_thumb.${ext}`, blob);
-                
-                URL.revokeObjectURL(video.src);
-                resolve();
-            };
-
-            video.onerror = (e) => {
-                URL.revokeObjectURL(video.src);
-                reject(new Error("Video load error"));
-            };
-        });
-    }
-
-    resetUI() {
-        this.isProcessing = false;
-        this.stopRequested = false;
-        this.startBtn.disabled = false;
-        this.stopBtn.disabled = true;
-        this.dropzone.style.pointerEvents = 'auto';
-        this.clearQueueBtn.style.display = 'block';
-        this.currentTask.textContent = "Ready";
-        this.log('Batch processing finished.');
-        document.getElementById('systemStatus').textContent = "Completed";
-        document.getElementById('systemStatus').style.color = "#059669";
-    }
 }
 
-// Initialize App
-document.addEventListener('DOMContentLoaded', () => {
-    const app = new VideoConverter();
-});
+// Boot
+document.addEventListener('DOMContentLoaded', () => new VideoConverter());
